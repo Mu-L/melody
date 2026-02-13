@@ -50,15 +50,56 @@ async function downloadFromLocalTmpPath(tmpPath, songInfo = {
     logger.info(`download song success, path: ${destPathAndFilename}`);
     return true;
 }
+// 辅助函数：清理文件名
+function cleanFilename(filename) {
+    // 移除路径分隔符
+    filename = filename.replace(/[/\\]/g, '');
+    
+    // 移除Windows保留字符和控制字符
+    filename = filename.replace(/[<>:"|?*\x00-\x1f]/g, '');
+    
+    // 移除开头和结尾的空白和点
+    filename = filename.trim().replace(/^\.+|\.+$/g, '');
+    
+    return filename;
+}
 
 function buildDestFilename(globalConfig, songInfo, playlistName) {
     const downloadPath = globalConfig.downloadPath;
-    let filename = (playlistName ? globalConfig.playlistSyncToLocal?.filenameFormat : globalConfig.filenameFormat)
-        .replace(/{artist}/g, songInfo.artist ? songInfo.artist : 'Unknown')
-        .replace(/{songName}/g, songInfo.songName ? songInfo.songName : 'Unknown')
-        .replace(/{playlistName}/g, playlistName ? playlistName : 'UnknownPlayList')
-        .replace(/{album}/g, songInfo.album ? songInfo.album : 'Unknown');
-    // remove the head / and \ in filename
-    filename = filename.replace(/^[\/\\]+/, '') + '.mp3';
-    return `${downloadPath}${libPath.sep}${filename}`
+    
+    // 修复1：明确的格式选择逻辑
+    let format;
+    if (playlistName && globalConfig.playlistSyncToLocal?.filenameFormat) {
+        // 情况1：有播放列表名且配置了播放列表格式
+        format = globalConfig.playlistSyncToLocal.filenameFormat;
+    } else {
+        // 情况2：默认格式
+        format = globalConfig.filenameFormat || '{artist} - {songName}';
+}  
+    // "Unknown"兜底，如果是无效值，替换
+    const artistSafe = cleanFilename(songInfo.artist || '') || 'Unknown';
+    const songNameSafe = cleanFilename(songInfo.songName || '') || 'Unknown';
+    const playlistSafe = cleanFilename(playlistName|| '') || 'UnknownPlaylist';
+    const albumSafe = cleanFilename(songInfo.album|| '') || 'Unknown';
+
+    // 替换变量 + 使用已经清洗的数据替换，防止由于替换内容包含目录分割符而导致目录错误
+    let filename = format
+        .replace(/{artist}/g, artistSafe)
+        .replace(/{songName}/g, songNameSafe)
+        .replace(/{playlistName}/g, playlistSafe)
+        .replace(/{album}/g, albumSafe);
+
+    // 以 .mp3 结尾 !!!这会导致无法实现“表面上”的无损下载，此处应当进行判断!!!
+
+    if (!filename.toLowerCase().endsWith('.mp3')) {
+        filename += '.mp3';
+    }
+    const validExtensions = /\.(mp3|flac|wav|m4a|ogg|ape|aac|wma)$/i;
+
+    if (!validExtensions.test(filename)) {
+        filename += '.mp3';
+    }
+    // 使用 libPath.join 安全拼接路径
+    return libPath.join(downloadPath, filename);
 }
+
